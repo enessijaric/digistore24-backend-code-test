@@ -45,9 +45,9 @@ class MessageController extends AbstractController
     public function send(Request $request, MessageBusInterface $bus): Response
     {
         $text = $request->query->get('text');
-        
-        if (!$text) {
-            return new Response('Text is required', 400);
+
+        if (!$text || !is_string($text)) {
+            return new Response('Invalid text parameter. Must be a non-empty string.', 400);
         }
 
         $bus->dispatch(new SendMessage($text));

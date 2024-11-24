@@ -21,9 +21,12 @@ class MessageRepository extends ServiceEntityRepository
     {
         parent::__construct($registry, Message::class);
     }
-    
-    public function by(Request $request): array
-    {
+
+    /**
+     * @param Request $request
+     * @return Message[]
+     */
+    public function by(Request $request): array    {
         $status = $request->query->get('status');
         
         if ($status) {
@@ -35,7 +38,7 @@ class MessageRepository extends ServiceEntityRepository
         } else {
             $messages = $this->findAll();
         }
-        
-        return $messages;
+
+        return is_array($messages) ? $messages : [];
     }
 }
