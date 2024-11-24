@@ -3,11 +3,13 @@ declare(strict_types=1);
 
 namespace App\Controller;
 
+use App\DataFixtures\MessageStatusEnum;
+use App\Entity\Message;
 use App\Message\SendMessage;
 use App\Repository\MessageRepository;
 use Controller\MessageControllerTest;
-use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
+use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\Messenger\MessageBusInterface;
@@ -15,8 +17,6 @@ use Symfony\Component\Routing\Attribute\Route;
 
 /**
  * @see MessageControllerTest
- * TODO: review both methods and also the `openapi.yaml` specification
- *       Add Comments for your Code-Review, so that the developer can understand why changes are needed.
  */
 class MessageController extends AbstractController
 {
@@ -24,34 +24,43 @@ class MessageController extends AbstractController
      * TODO: cover this method with tests, and refactor the code (including other files that need to be refactored)
      */
     #[Route('/messages')]
-    public function list(Request $request, MessageRepository $messages): Response
+    public function list(Request $request, MessageRepository $messageRepository): Response
     {
-        $messages = $messages->by($request);
-  
-        foreach ($messages as $key=>$message) {
-            $messages[$key] = [
-                'uuid' => $message->getUuid(),
-                'text' => $message->getText(),
-                'status' => $message->getStatus(),
-            ];
+        $filters = [];
+        $status = $request->query->get('status');
+        if ($status !== null && !in_array($status, array_column(MessageStatusEnum::cases(), 'value'), true)) {
+            return $this->json(['error' => 'Invalid status value'], Response::HTTP_BAD_REQUEST);
         }
-        
-        return new Response(json_encode([
-            'messages' => $messages,
-        ], JSON_THROW_ON_ERROR), headers: ['Content-Type' => 'application/json']);
+
+        $filters['status'] = $status;
+        $messages = $messageRepository->by($filters);
+
+        $response = array_map(static fn($message) => [
+            'uuid' => $message->getUuid(),
+            'text' => $message->getText(),
+            'status' => $message->getStatus(),
+        ], $messages);
+
+        return $this->json(['messages' => $response]);
     }
 
-    #[Route('/messages/send', methods: ['GET'])]
-    public function send(Request $request, MessageBusInterface $bus): Response
+    #[Route('/message/send', methods: ['POST'])]
+    public function send(Request $request, MessageBusInterface $bus): JsonResponse
     {
-        $text = $request->query->get('text');
+        $data = json_decode($request->getContent(), true);
 
-        if (!$text || !is_string($text)) {
-            return new Response('Invalid text parameter. Must be a non-empty string.', 400);
+        if (!is_array($data) || empty($data['text']) || !is_string($data['text'])) {
+            return new JsonResponse(['error' => 'Invalid text parameter. Must be a non-empty string.'], Response::HTTP_BAD_REQUEST);
         }
 
-        $bus->dispatch(new SendMessage($text));
-        
-        return new Response('Successfully sent', 204);
+        try {
+            $message = new Message($data['text']);
+
+            $bus->dispatch(new SendMessage($message->getText()));
+
+            return new JsonResponse(['message' => 'Successfully sent'], Response::HTTP_NO_CONTENT);
+        } catch (\InvalidArgumentException $e) {
+            return new JsonResponse(['error' => $e->getMessage()], Response::HTTP_BAD_REQUEST);
+        }
     }
 }
